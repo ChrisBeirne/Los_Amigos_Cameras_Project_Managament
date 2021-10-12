@@ -28,7 +28,6 @@ lapply(list.of.packages, require, character.only = TRUE)
 ```{r googledrive setup and file import, include=FALSE}
 #drive_auth()
 
-
 # run this line, and enter "Yes". It will open up a browser window, and you'll have to allow access to your Google Drive account
 x <- drive_find(n_max = 30)
 1
@@ -57,7 +56,7 @@ folder_url <- "https://drive.google.com/drive/u/0/folders/1nxFVm2Aib1m7TSNEkJjoz
 folder <- drive_get(as_id(folder_url))
 dataentry_files <- drive_ls(folder, recursive=F)
 
-tmp <- dataentry_files[dataentry_files$name=="Entrada_data",]
+tmp <- dataentry_files[dataentry_files$name %in% c("Entrada_data","Camera_locations_master"),]
 
 # Downloads all the files into a subfolder
 for (i in 1:nrow(tmp)) {

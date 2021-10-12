@@ -1,14 +1,19 @@
 # Interactive maps
 library(raster)
 library(elevatr)
+library(sf)
 #small version
 
-loc.df <- data.frame(x=c(min(active.deps$Longitude, na.rm=T), max(active.deps$Longitude, na.rm=T)),
-                     y=c(min(active.deps$Latitude, na.rm=T), max(active.deps$Latitude, na.rm=T)))
+all.locs <- read.csv("data/raw-data/Camera_locations_master.csv", header=T, sep=",")
+
+tmp1 <- all.locs[all.locs$Group=="CM2",]
+
+loc.df <- data.frame(x=c(min(tmp1$Longitude, na.rm=T), max(tmp1$Longitude, na.rm=T)),
+                     y=c(min(tmp1$Latitude, na.rm=T), max(tmp1$Latitude, na.rm=T)))
 
 
 
-tmp <- st_as_sf(active.deps[is.na(active.deps$Longitude)==F,],coords=c("Longitude", "Longitude"),crs=4326)
+tmp <- st_as_sf(tmp1[is.na(tmp1$Longitude)==F,],coords=c("Longitude", "Longitude"),crs=4326)
 
 st_area(st_as_sfc(st_bbox(tmp)))/1e+6
 
@@ -18,7 +23,7 @@ st_area(st_as_sfc(st_bbox(tmp)))/1e+6
 elevation <- get_elev_raster(locations = loc.df, prj = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs", z=13)
 image(elevation, asp=1)
 
-points(active.deps$Longitude, active.deps$Latitude)
+points(tmp1$Longitude, tmp1$Latitude)
 
 
 # Project it to meters
@@ -55,11 +60,11 @@ overlay_image <-
     elevation,
     image_source = "mapbox",
     image_type = "satellite",
-    png_opacity = 0.6,
+    png_opacity = 0.9,
     api_key = mapbox_key
   )
 
-plot(overlay_image)
+#plot(overlay_image)
 
 
 # Draw the scene
@@ -67,9 +72,9 @@ scene <- elmat %>%
   sphere_shade(sunangle = sunangle, texture = "bw") %>%
   add_overlay(overlay_image)
 
-rayshader::plot_3d(
-  scene,
-  elmat)
+#rayshader::plot_3d(
+#  scene,
+#  elmat)
   
 
 
@@ -77,9 +82,9 @@ rayshader::plot_3d(
   scene,
   elmat,
   zscale = raster_zscale(elevation),
-  solid = FALSE #,
-#  shadow = TRUE,
-#  shadowdepth = -150
+  solid = FALSE ,
+  shadow = TRUE)# ,
+#  shadowdepth = 0
 )
 
 
