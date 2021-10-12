@@ -41,3 +41,6 @@ vignettes/*.pdf
 
 # .csv files
 .csv
+/*.csv
+data/
+/data
