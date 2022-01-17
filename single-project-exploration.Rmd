@@ -1,5 +1,5 @@
 ---
-title: "Wildlife Insights - Single Project"
+title: "Los Amigos Camera Trapping Exploration"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: html_document
 editor_options: 
@@ -32,6 +32,7 @@ lapply(list.of.packages, require, character.only = TRUE)
 x <- drive_find(n_max = 30)
 1
 # Create the file
+dir.create("data")
 dir.create("data/raw-data")
 
 
@@ -108,32 +109,11 @@ dep$end_date <- strptime(dep$end_date, "%Y-%m-%d", tz="UTC")
 #Calculate days active
 dep$days <- dep$end_date-dep$start_date
 
-```
+# Add a deployment_location_id column
+dat$deployment_location_id <- substr(dat$deployment_id,1,6)
+dep$deployment_location_id <- substr(dep$deployment_id,1,6)
+all.deps$deployment_location_id <- substr(all.deps$deployment_id,1,6)
 
-
-# `r pro$project_name[1]` Project
-Summary information for the project:
-
-```{r}
-t(pro) %>%
-  kbl() %>%
-  kable_styling(full_width = T) %>%
-  column_spec(1, bold = T, border_right = T)
-
-# ADD DEPLOYMENT COVERAGE
-tmp <- st_as_sf(all.deps[is.na(all.deps$Longitude)==F,],coords=c("Longitude", "Longitude"),crs=4326)
-
-```
-
-
-The sub-projects included in this script are `r unique(dep$subproject_name)`.
-
-# Active deployment summary
-The project currently has `r nrow(all.deps[all.deps$End.date=="",])` cameras active in the field. To date the labelling platform contains `nrow(dep)` completed deployments from `r length(unique(dep$subproject_name))` sub-project(s).  
-
-The deployments currently span `r paste(round(as.numeric(st_area(st_as_sfc(st_bbox(tmp)))/1e+6),1), "km^2")`
-
-```{r deployment_smmaries, echo=F}
 all.deps$subproject_nam <- NA 
 all.deps$subproject_nam[substr(all.deps$deployment_id,1,3)=="LAC"] <- "Grids"
 all.deps$subproject_nam[substr(all.deps$deployment_id,1,3)=="FEA"] <- "Features"
@@ -142,25 +122,72 @@ all.deps$subproject_nam[substr(all.deps$deployment_id,1,3)=="VUL"] <- "Carcass_w
 # Create a list of currently active deployments in odr of time since deployment
 active.deps <- all.deps[all.deps$End.date=="" & is.na(all.deps$End.date)==F,]
 active.deps$Start.date <- strptime(active.deps$Start.date, "%d/%m/%y", tz="UTC")
-
 active.deps$Days <- round(as.numeric(strptime(Sys.Date(), "%Y-%m-%d") -  active.deps$Start.date), 1) 
 
-tmp <- active.deps[, c("deployment_id", "Location", "Days")]
-tmp <- tmp[order(tmp$Days, decreasing=T),]
-
-tmp <- left_join(tmp, all.locs, by=c("Location"= "Location.Name"))
-
-tmp[,c("deployment_id", "Location",  "Days", "Project" ,"Group")] %>%
-  kbl() %>%
-  kable_styling(full_width = T) %>%
-  column_spec(1, bold = T, border_right = T)
+# ADD DEPLOYMENT COVERAGE
+tmp <- st_as_sf(all.deps[is.na(all.deps$Longitude)==F,],coords=c("Longitude", "Longitude"),crs=4326)
 
 
 ```
 
+The sub-projects included in this script are **`r unique(dep$subproject_name)`**.
+
+# Active deployment summary
+The project currently has `r nrow(active.deps)` cameras active in the field. The project currently spans `r paste(round(as.numeric(st_area(st_as_sfc(st_bbox(tmp)))/1e+6),1), "km^2")`
+
+## Deployment locations [Active]
+
+```{r, echo=F}
+# Generate colours to display the category levels - R needs them as a factor
+active.deps <- active.deps[is.na(active.deps$Latitude)==F,]
+# Create a continuous palette function
+pal <- colorNumeric(
+  palette = "Reds",
+  domain = active.deps$Days)
+
+active.deps$Cols <- pal(active.deps$Days)
+
+# Make a legend key
+tmp<- data.frame(Cols=c(active.deps$Cols[active.deps$Days==min(active.deps$Days)][1],
+                  active.deps$Cols[nrow(active.deps)/2],
+                  active.deps$Cols[active.deps$Days==max(active.deps$Days)][1]),
+           Labels=c(active.deps$Days[active.deps$Days==min(active.deps$Days)][1],
+                  active.deps$Days[nrow(active.deps)/2],
+                  active.deps$Days[active.deps$Days==max(active.deps$Days)][1]))
 
 
-```{r}
+```
+
+```{r map active, echo=F}
+
+# Count the number of camera ststions
+n.stat <- length(unique(active.deps$deployment_id))
+
+m <- leaflet() %>%
+  addProviderTiles(providers$Esri.WorldTopoMap, group="Base") %>%
+  addProviderTiles(providers$Esri.WorldImagery, group="Satellite") %>%  # Add satellite data
+  
+  addCircleMarkers(lng= active.deps$Longitude, lat= active.deps$Latitude,
+                   color=active.deps$Cols ,
+                   popup=paste( active.deps$Location, "-" , active.deps$Days, "days active")) %>%
+ 
+  addLegend("topleft", colors = tmp$Cols,  labels = tmp$Labels,
+    title = "Days active",
+    labFormat = labelFormat(prefix = "$"),
+    opacity = 1
+  ) %>%
+  # Layers control
+  addLayersControl(
+    baseGroups = c("Satellite", "Base"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+m
+
+```
+
+### Active locations by subproject
+
+```{r active summaries, echo=F}
 tmp <- as.data.frame(table(active.deps$subproject_nam))
 
 p1 <- plot_ly(
@@ -171,66 +198,35 @@ p1 <- plot_ly(
 ) %>%
   layout(plot_bgcolor = "#f5f5f5", 
          xaxis = list(title = 'Sub-project'), 
-         yaxis = list(title = 'Total deployments to date'),
-         title="Completed deployments")
+         yaxis = list(title = 'Active deployments'),
+         title="Active deployments")
 
 tmp <- as.data.frame(table(dep$subproject_name))
 
-p2 <- plot_ly(
-  x=tmp$Var1,
-  y=tmp$Freq,
-  name = "Completed deployments",
-  type = "bar"
-) %>%
-  layout(plot_bgcolor = "#f5f5f5", 
-         xaxis = list(title = 'Sub-project'), 
-         yaxis = list(title = 'Completed deployments to date'),
-         title="Deployment summaries")
-
-
-
-subplot(p1, p2)
+p1
 
 ```
 
+### List of active deployment locations
 
-# Camera status at the end of deployment
-
-```{r camera status}
-tmp <- as.data.frame(table(dep$camera_functioning))
-
-colnames(tmp) <- c("Category", "number")
-
-plot_ly(tmp, labels = ~Category, values = ~number, type = 'pie',
-         textposition = 'inside',
-        textinfo = 'label+number',
-        insidetextfont = list(color = '#FFFFFF'),
-        hoverinfo = 'number') %>% 
-  layout(title = 'Camera status when checked')
-```
-
-
-### Do all deployments have associated images?
-
-Of the deployments currently in Wildlife Insights, `r paste0((length(dep$deployment_id[dep$deployment_id %in% dat$deployment_id])/nrow(dep))*100, "%")` of deployments have associated image data.
-
-*Note - our current workflow should mean that deployments ALWAYS have image data. If the percentage is <100% then there is a problem*
-
+In order to help decide the next cameras to check - we also list the currently active cameras below (with the longest running first):
 
 ```{r, echo=F}
-# Plot the camera activity profiles
+tmp <- active.deps[, c("deployment_id", "Location", "Days")]
+tmp <- tmp[order(tmp$Days, decreasing=T),]
 
+tmp <- left_join(tmp, all.locs, by=c("Location"= "Location.Name"))
 
-
-
-
-
-
+tmp[,c("deployment_id", "Location",  "Days", "Project" ,"Group")] %>%
+  kbl() %>%
+  kable_styling(full_width = T) %>%
+  column_spec(1, bold = T, border_right = T )%>%
+  scroll_box( height = "200px")
 
 ```
 
-
-## Deployment locations [All]
+# All deployments
+To date we have deployed cameras in `r length(unique(all.deps$deployment_location_id))` locations. 
 
 ```{r, echo=F, include=F}
 # Generate colours to display the category levels - R needs them as a factor
@@ -266,712 +262,164 @@ m
 
 ```
 
-## Deployment locations [Active]
+# Wildlife Insights Summary
 
-To date there have been camera deployments at `r length(unique(dep$placename))` unique locations.
+To date, `r Sys.Date()`, we have `r nrow(dat)` images. They were identified by the following mechanism:
 
-```{r, echo=F, include=F}
-# Generate colours to display the category levels - R needs them as a factor
-active.deps <- active.deps[is.na(active.deps$Latitude)==F,]
-# Create a continuous palette function
-pal <- colorNumeric(
-  palette = "Reds",
-  domain = active.deps$Days)
+```{r, echo=F}
+par(mfrow=c(1,1))
+tmp <- as.data.frame(table(dat$identified_by=="Computer vision"))
 
-active.deps$Cols <- pal(active.deps$Days)
+tmp$Type <- "Labelled"
+tmp$Type[tmp$Var1==TRUE] <- "To label"
 
-# Make a legend key
-tmp<- data.frame(Cols=c(active.deps$Cols[active.deps$Days==min(active.deps$Days)][1],
-                  active.deps$Cols[nrow(active.deps)/2],
-                  active.deps$Cols[active.deps$Days==max(active.deps$Days)][1]),
-           Labels=c(active.deps$Days[active.deps$Days==min(active.deps$Days)][1],
-                  active.deps$Days[nrow(active.deps)/2],
-                  active.deps$Days[active.deps$Days==max(active.deps$Days)][1]))
+f1 <- plot_ly(tmp,y=~tmp$Freq, x=tmp$Type,  type="bar", name=tmp$Type) %>% 
+        layout(yaxis = list(title = 'Images'), barmode = 'group')
 
+f1
+```
+
+The breakdown by labeler is as follows:
+
+```{r, echo=F}
+tmp2 <- as.data.frame(table(dat$identified_by[!dat$identified_by%in% c("Computer vision", "")]))
+
+colnames(tmp2)[1] <- "Person"
+
+f2 <- plot_ly(tmp2,y=~tmp2$Freq, x=tmp2$Person,  type="bar", name=tmp2$Person) %>% 
+        layout(yaxis = list(title = 'Images labelled'), barmode = 'group')
+
+
+f2
 
 ```
 
-```{r map, echo=F}
+## Species labels
 
-# Count the number of camera ststions
-n.stat <- length(unique(active.deps$deployment_id))
+```{r, echo=F}
+# Reduce to verfied data
+vdat <- dat[!dat$identified_by %in% c("Computer vision", ""),]
+# Remove blanks
+vdat$sp <- paste(vdat$genus, vdat$species)
+vdat <- vdat[vdat$is_blank==0,]
+vdat <- vdat[vdat$species!="No CV Result",]
+vdat <- vdat[vdat$common_name!="Blank",]
 
-m <- leaflet() %>%
-  addProviderTiles(providers$Esri.WorldTopoMap, group="Base") %>%
-  addProviderTiles(providers$Esri.WorldImagery, group="Satellite") %>%  # Add satellite data
-  
-  addCircleMarkers(lng= active.deps$Longitude, lat= active.deps$Latitude,
-                   color=active.deps$Cols ,
-                   popup=paste( active.deps$Location, "-" , active.deps$Days, "days active")) %>%
- 
-  addLegend("topleft", colors = tmp$Cols,  labels = tmp$Labels,
-    title = "Days active",
-    labFormat = labelFormat(prefix = "$"),
-    opacity = 1
-  ) %>%
-  # Layers control
-  addLayersControl(
-    baseGroups = c("Satellite", "Base"),
-    options = layersControlOptions(collapsed = FALSE)
-  )
-m
+# Do all species with a latin name have a common name - YES use common name
+#as.data.frame(table(paste(vdat$sp, vdat$common_name)))
 
+# if the species name is blank it must be to family, order or class level
 ```
 
-#### Determine distances between on trail and off trail cameras
+To date we have `r `nrow(vdat)` image labels verified by human observers (after removing `r nrow(dat[dat$is_blank==1 | dat$species=="No CV Result" | dat$common_name =="Blank",])` blanks). The species categories are as follows:
 
-```{r, echo =F}
-# create spatial file
-camera_locs <- dep[dep$subproject_name=="Grids",] %>% 
-  select(placename, latitude, longitude) %>% 
-  unique() %>% # remove unique rows (in case of multiple deployment)
-  st_as_sf(coords = c("longitude", "latitude"), crs = "+proj=longlat")
+```{r, include=F}
 
-# distance matrix for all cameras
-camera_dist <- st_distance(camera_locs) %>% 
-  as.dist() %>% 
-  usedist::dist_setNames(as.character(camera_locs$placename)) %>% 
-  as.matrix()
+# OLD VERSION
+n.loc <- length(unique(dep$deployment_location_id))
 
-# convert to pairwise list
-camera_dist_list <- t(combn(colnames(camera_dist), 2))
-camera_dist_list <- data.frame(camera_dist_list, dist = camera_dist[camera_dist_list]) %>% 
-  arrange(dist) # sort descending
-
-# Remove stations that have different ID numbers
-camera_dist_list <- camera_dist_list[substr(camera_dist_list$X1,4,6)==substr(camera_dist_list$X2,4,6),]
-
-# create a list of the closest camera for each station
-camera_dist_list <- camera_dist_list %>% 
-    group_by(X1) %>% 
-    slice(which.min(dist))
-
-```
-
-The average distance to the off trail camera for the Grids project is `r round(mean(camera_dist_list$dist),1)`m, the closest camera is `r round(min(camera_dist_list$dist),1)`m, the furthest `r round(max(camera_dist_list$dist),1)`m. 
-
-# Processing dates
-
-The following code block ensures that all dates are in the appropriate format.
-
-```{r date checks, include =F}
-# Prepare dates
-dep$start_date <- as.POSIXct(parse_date_time(substr(dep$start_date,1,10),c("%Y-%m-%d")))
-
-dep$end_date <- as.POSIXct(parse_date_time(substr(dep$end_date,1,10),c("%Y-%m-%d")))
-
-dep$Days <- as.numeric(round(difftime(dep$end_date, dep$start_date, units="days"),1))
-# Image data
-dat$timestamp <- parse_date_time(dat$timestamp,c("%Y-%m-%d %H:%M:%S")) 
-```
-
-How many NA's are there. If you have any TRUE values (n \> 0) there is an issue:
-
-Deployment data - Begin.Date = `r nrow(dep[is.na(dep$start_date)==TRUE,])`
-
-Deployment data - End.Date = `r nrow(dep[is.na(dep$end_date )==TRUE,])`
-
-Deployment data - Days active = `r nrow(dep[is.na(dep$Days)==TRUE,])`
-
-Image data - timestamp = `r nrow(dat[is.na(dat$timestamp)==TRUE,])`
-
-# Species labelled
-
-Note - anything what has been labelled by the computer may not have yet been checked, thus they may be incorrect. 
-
-```{r number.of.species}
-dat$computer_id <- dat$identified_by=="Computer vision"
-
-tmp <- as.data.frame.matrix((table(paste(dat$class,dat$order,dat$family,dat$genus, dat$species), dat$computer_id)))
-colnames(tmp)[colnames(tmp)==TRUE] <- "Computer"
-colnames(tmp)[colnames(tmp)==FALSE] <- "Human"
-
-
-tmp <- data.frame("Category"= c("Verified", "Unverified"))
-tmp$number <- NA
-tmp$number[tmp$Category=="Verified"] <- length(unique(paste(dat$genus[dat$species!="" & dat$identified_by!="Computer vision"], dat$species[dat$species!="" & dat$identified_by!="Computer vision"])))
-
-tmp$number[tmp$Category=="Unverified"] <- length(unique(paste(dat$genus[dat$species!=""], dat$species[dat$species!=""]))) - tmp$number[tmp$Category=="Verified"]
-
-```
-
-To date there have been `r nrow(tmp)-1` different taxonomic identifications, of which there represent `r tmp$number[tmp$Category=="Unverified"] ` unique identifications to species level. Of these, `r tmp$number[tmp$Category=="Verified"]` have been verified by humans.  
-
-```{r}
-plot_ly(tmp, labels = ~Category, values = ~number, type = 'pie',
-         textposition = 'inside',
-        textinfo = 'label+number',
-        insidetextfont = list(color = '#FFFFFF'),
-        hoverinfo = 'number') %>% 
-  layout(title = 'Verified species identifications')
-```
-
-
-
-## Species Lists
-
-```{r}
-tmp %>%
-  kbl() %>%
-  kable_styling(full_width = T) %>%
-  column_spec(1, bold = T, border_right = T)
-```
-
-
-### Group size and number of animals
-
-Ensure that any counts are in numeric format.
-
-```{r group sive or number of individuals}
-# Ensure Group.Size doesnt have any non-numeric data in! The following should return TRUE
-is.numeric(dat$Group.Size)
-is.numeric(dat$Number.of.Animals)
-
-
-summary(dat$Number.of.Animals)
-dat[dat$Number.of.Animals>400,]$Number.of.Animals  <- 1
-```
-
-### Camera activity through time
-
-The `r n.stat` stations have resulted in a total of `r as.character(round(sum(dep$Days, na.rm=T),0))` camera days (mean = `r round(mean(aggregate(Days~placename, data=dep,  FUN=sum, na.rm=T)$Days),1)` days per station; min = `r round(min(aggregate(Days~placename, data=dep,  FUN=sum, na.rm=T)$Days),1)`; max = `r round(max(aggregate(Days~placename, data=dep,  FUN=sum, na.rm=T)$Days),1)`).The daily break down of camera activity is as follows:
-
-```{r activity, echo=F, fig.height=dep.height}
-
-# Adjust layout
-par(mar=c(2,6,1,1))
-plot(c(min(dep$start_date, na.rm=T), max(dep$end_date, na.rm=T)),      c(1,n.stat), las=1, ylab="", xlab="", type="n", yaxt="n", xaxt="n")
-
-axis(2, at= 1:n.stat, labels= unique(dep$placename), las=1, cex.axis=0.4)
-axis(1, at= seq(min(dep$start_date, na.rm=T), max(dep$end_date, na.rm=T)-200, length.out=9),
-     labels=c(substr(seq(min(dep$start_date, na.rm=T), max(dep$end_date, na.rm=T)-200, length.out=9),1,7)))
-#mtext("Camera Deployment ID", 2, 4)
-# Make lines for each of the cameras
-for(i in 1:length(unique(dep$placename)))
-{
-  abline(h=i, col=rgb(0,0,0,0.1))
-  tmp <- dep[dep$placename==unique(dep$placename)[i],]
-  for(j in 1:nrow(tmp))
-    {
-      lines(c(tmp$start_date[j],
-                       tmp$end_date[j]),
-            c(i,i), lwd=2)
-    # Colour lines red if the start time occurs after the end time  
-    if(tmp$Days[j]<0)
-      {
-        lines(c(tmp$start_date[j],
-                       tmp$end_date[j]),
-            c(i,i), lwd=3, col="red")
-      }
-    }
-  
-}
-
-```
-
-Black lines denote a camera which is active, red lines denote a start date which occurs after an end date,and white space indicates cameras which are inactive.
-
-### Deployment details
-
-**Camera makes:**
-
-```{r cam makes , echo=F}
-tmp <- as.data.frame(table(dep$Camera.Make))
-colnames(tmp) <- c("Make", "Frequency")
-
-tmp %>%
-  kbl() %>%
-  kable_styling(full_width = F) %>%
-  column_spec(1, bold = T, border_right = T)
-
-```
-
-**Cameras heights:**
-
-```{r cam heights, echo=F}
-dep$Height <- as.numeric(dep$Height)
-tmp <- as.data.frame(unclass(summary(dep$Height, na.rm=T)))
-colnames(tmp) <- "Height"
-if(is.numeric(tmp$Height)==TRUE)
-{
-tmp$Height <- round(tmp$Height,2)
-}
-tmp %>%
-  kbl() %>%
-  kable_styling(full_width = F) %>%
-  column_spec(1, bold = T, border_right = T)
-
-```
-
-**Cameras angles:**
-
-```{r cam angles , echo=F}
-dep$Angle <- as.numeric(dep$Angle)
-
-tmp <- as.data.frame(table(dep$Angle))
-if(nrow(tmp)>1)
-{
-colnames(tmp) <- c("Angle", "Frequency")
-
-tmp %>%
-  kbl() %>%
-  kable_styling(full_width = F) %>%
-  column_spec(1, bold = T, border_right = T)
-} else{ print("Not included.") }
-```
-
-### Raw detection summary
-
-There are `r nrow(dat)` image classifications, `r nrow(dat[dat$Blank==FALSE,])` of which are classified as containing a species.
-
-Of the detections which have been identified, there are `r length(levels(factor(dat$Species)))` different catageories.
-
-```{r captures, echo=F, fig.height=sp.height}
 layout(matrix(c(1,1,2), 1, 3, byrow = TRUE))
-det.sum.total <- as.data.frame(count(dat[dat$Blank==FALSE & is.na(dat$Species)==FALSE,], Species))
+det.sum.total <- as.data.frame(count(vdat[vdat$is_blank==0,], common_name))
 det.sum.total <- det.sum.total[order(det.sum.total$n),]
 
 par(mar=c(5,16,1,1))
-barplot(det.sum.total$n, names.arg = paste0(det.sum.total$Species, 
+barplot(det.sum.total$n, names.arg = paste0(det.sum.total$common_name, 
                                            " (n =", det.sum.total$n,")")   , las=1, cex.names=1, xlab="Total detections", horiz=T)
 i <-1
+
+
 for(i in 1:nrow(det.sum.total))
 {
-  tmp <- subset(dat, Species==det.sum.total$Species[i])
-  det.sum.total$Locations[i] <- length(unique(tmp$placename))
+  tmp <- subset(vdat, common_name==det.sum.total$common_name[i])
+  det.sum.total$Locations[i] <- length(unique(tmp$deployment_location_id))
 }
 par(mar=c(5,1,1,1))
 
-barplot(det.sum.total$Locations/n.stat, las=1, cex.names=0.7, xlab="Proportion of sites detected", horiz=T, xlim=c(0,1))
+barplot(det.sum.total$Locations/n.loc, las=1, cex.names=0.7, xlab="Proportion of sites detected", horiz=T, xlim=c(0,1))
 abline(v=1, lty=2)
 
 ```
 
-### Detection time check
+To date we have `r length(unique(vdat$common_name))` unique classifications. Of these, `r length(unique(vdat[vdat$species!="",]$sp))` are to full species level, `r length(unique(vdat[vdat$species=="",]$genus))` to genus level, the rest are higher (family/order). 
 
-The following plot helps you determine if you have detections occuring outside of the times cameras are active. *Important note* You can still get detections outside of the activity period if you have decided that the field of view was shifted and the data is un-compariable to that which was collected earlier. Plots are broken into managable 20 station chunks.
+Note you can use the slider bar at the bottom to control the the x-axis extent. 
 
-```{r, include=F}
-# Make species colour codes
-tmp3 <- data.frame("Species"=unique(dat$Species),"Colour"= wheel("lightseagreen", num = length(unique(dat$Species))))
+```{r, echo=F}
+# MAke it in plotly?
+#Order
 
-```
+det.sum.total$order <-1:nrow(det.sum.total)
 
-```{r detecion summary, echo=F, message=F, warning=F}
-# Make a separate plot for each 20 stations For each 20 stations
-# To do this make a plot dattaframe
-tmp4 <- data.frame("placename"=unique(dep$placename), "Plot.grp"=ceiling(1:length(unique(dep$placename))/20))
+yform <- list(categoryorder = "array",
+              categoryarray = det.sum.total$common_name,
+              tickfont = list(size = 7))
 
-dep <- left_join(dep,tmp4, by = "placename")
-j <- 1
-for(j in 1:length(unique(dep$Plot.grp)))
-{
-    layout(matrix(c(1,1,1,2), 1, 4, byrow = TRUE))
-    par(mar=c(2,6,1,1))
-    
-    plot(c(min(dep$start_date, na.rm=T), max(dep$end_date, na.rm=T)),      c(1,length(unique(dep$placename[dep$Plot.grp==j]))), las=1, ylab="", xlab="", type="n", yaxt="n")
-    
-    axis(2, at= 1:length(unique(dep$placename[dep$Plot.grp==j])), labels= unique(dep$placename[dep$Plot.grp==j]), las=1, cex.axis=1)
-    #mtext("Camera Deployment ID", 2, 4)
-    # Make lines for each of the cameras
-    for(i in 1:length(unique(dep$placename[dep$Plot.grp==j])))
-    {
-      abline(h=i, col=rgb(0,0,0,0.1))
-      tmp <- dep[dep$placename==unique(dep$placename[dep$Plot.grp==j])[i],]
-      
-      tmp2 <- dat[dat$placename==tmp$placename[1],]
-      tmp2 <- left_join(tmp2, tmp3, by = "Species")
-      points(tmp2$timestamp, rep(i,nrow(tmp2)), pch="|", col= tmp2$Colour)
-    
-      for(k in 1:nrow(tmp))
-        {
-          lines(c(tmp$start_date[k],
-                           tmp$end_date[k]),
-                c(i,i), lwd=2)
-        }
-      }
-    par(mar=c(0,0,1,0))
-    plot.new()
-    legend("topleft", legend=tmp3$Species, fill=tmp3$Colour, xpd=TRUE, cex=1.1 )
+xform <- list(rangeslider = list(type = "n"))
 
-}
+fig <- plot_ly(x = det.sum.total$n, y = det.sum.total$common_name, type = 'bar', orientation = 'h',
+               height=2000)%>% 
+ layout(yaxis = yform, xaxis=xform)
+
+fig
 
 ```
 
-### Human Data
+# Diel time
+For any species detected more than 10 times, we will plot when they were detected:
 
-Of the `r nrow(dat)` image classifications, `r nrow(dat[dat$Species=="Homo sapiens",])` are classified as human.
+```{r, echo=F, warning=F, message=F}
+vdat$hours <- hour(vdat$timestamp) + minute(vdat$timestamp)/60 + second(vdat$timestamp)/(60*60)
 
-The human classifcations are broken down into the following classifications:
 
-```{r humans, echo=F, message =F}
-table(dat$Species.Common.Name[dat$Species=="Homo sapiens"]) %>%
-  kbl() %>%
-  kable_styling(full_width = F)
-```
+yform <- list(categoryorder = "array",
+              categoryarray = det.sum.total$common_name,
+              tickfont = list(size = 7))
 
-## Other data
+fig <- plot_ly(x = vdat$hours, y = vdat$common_name,type="scatter",
+               height=2000, text=vdat$deployment_id, hoverinfo='text',
+               mode   = 'markers',
+               marker = list(size = 5,
+                             color = 'rgba(50, 100, 255, .2)',
+                             line = list(color = 'rgba(0, 0, 0, 0)',
+                                         width = 0))) %>% 
+              layout(yaxis = yform)
 
-### Number of animals by species
-
-Was "Number of Animals" included? `r "Number.of.Animals" %in% names(dat)`
-
-```{r Number of Animals, echo=F,fig.height=sp.height}
-dat$Species <- as.factor(dat$Species)
-
-if( ("Number.of.Animals" %in% names(dat))==TRUE )
-{
-  par(mfrow=c(1,1))
-  par(mar=c(5,10,1,1))
-  plot(jitter(as.numeric(dat$Species))~jitter(dat$Number.of.Animals), xlab="Number of Animals", yaxt="n", las=1, ylab="")
-  axis(2, 1:length(unique(dat$Species)), labels=levels(dat$Species), las=2, cex.axis=0.6)
-  
-}
-
+fig
 
 ```
 
-### Group size by species
+# Detection check
 
-Was "Group Size" included? `r "Group.Size" %in% names(dat)`
+We also need to check if all of the deployments in Wildlife Insights have associated image data.
 
-```{r Group Size, echo=F, fig.height=sp.height}
-if( ("Group.Size" %in% names(dat))==TRUE)
-{
-  par(mfrow=c(1,1))
-  par(mar=c(5,10,1,1))
-  plot(jitter(as.numeric(dat$Species))~jitter(dat$Group.Size), xlab="Group Size", yaxt="n", las=1, ylab="", pch=19, col=rgb(0,0,0,0.2))
-  axis(2, 1:length(unique(dat$Species)), labels=levels(dat$Species), las=2, cex.axis=0.6)
-  
-}
+Of the deployments currently in Wildlife Insights, `r paste0((length(dep$deployment_id[dep$deployment_id %in% dat$deployment_id])/nrow(dep))*100, "%")` of deployments have associated image data.
 
-```
+*Note - our current workflow should mean that deployments ALWAYS have image data. If the percentage is <100% then there is a problem*
 
-## Temporal trends
+We can also check to see if any deployments need truncating - for example if the camera ceased to be active:
 
-### Site-level temporal plots
-
-### Summary
-
-Across all sites and species:
-
-```{r creating monthly data, echo=F, eval=T}
-##########################
-# Capture rates through time
-focal.sp <- unique(dat$Species)
-focal.sp <- focal.sp[order(focal.sp)]
-
-# We need to know how many detections there are in each month -> create a row lookup
-# This is just a list of ever day a camera was active.
-
-tmp <- dep[is.na(dep$end_date)==F,]
-daily.lookup <- list()
-
-for(i in 1:nrow(tmp))
-{
-  if(as.Date(tmp$start_date[i])!=as.Date(tmp$end_date[i]))
-  {
-    daily.lookup[[i]] <- data.frame("Date"=seq(as.Date(tmp$start_date[i])+1, as.Date(tmp$end_date[i]), by="days"), "placename"=tmp$placename[i])
-  }
-}
-row.lookup <- do.call(rbind, daily.lookup)
-
-# Now determine capture rates
-# Make a data frame by month and year
-mon.dat <- unique(substr(dat$timestamp, 1,7))
-mon.dat <- data.frame("Month"=mon.dat[order(mon.dat)], "Effort"= NA)
-mon.dat[as.character(focal.sp)] <- NA
-i<-1
-# Determine camera effort and total captures
-for(i in 1:nrow(mon.dat))
-{
-  mon.dat$Effort[i] <- nrow(subset(row.lookup, substr(row.lookup$Date,1,7)==mon.dat$Month[i]))
-  mon.dat$Total.CR[i] <- (nrow(subset(dat, substr(dat$timestamp,1,7)==mon.dat$Month[i]))/mon.dat$Effort[i])*100
-}
-
-# Now determine raw detections by species, through time
-# This will take a decent amount of time if there are a lot of species.
-# Will likely be a better vectorised way of doing this!
-
-for(i in 1:length(focal.sp))
-{
-  for(j in 1:nrow(mon.dat))
-  {
-    tmp <- subset(dat, Species==as.character(focal.sp)[i] & substr(dat$timestamp,1,7)==mon.dat$Month[j])
-    mon.dat[j, as.character(focal.sp[i])] <- (nrow(tmp)/mon.dat$Effort[j])*100
-  }
-}
-
-mon.dat$timestamp <- strptime(paste0(as.character(mon.dat$Month),"-15"), "%Y-%m-%d")
-# Remove rows without effort
-mon.dat <- mon.dat[mon.dat$Effort>0,]
-```
-
-Are there any infinite detection rates = `r nrow(mon.dat[is.infinite(mon.dat$Total.CR)==T,])>0`
-
-The following plot shows the temporal coverage and detection rates.
-
-```{r overall CR, echo=F, fig.height=4, eval=T}
-par(mar=c(5,4,1,1))
-par(mfrow=c(1,2))
-
-# Camera effort
-plot(mon.dat$timestamp, mon.dat$Effort, ylab="Total monthly effort (camera days)", xlab="Date", type="l", las=1)
-points(mon.dat$timestamp, mon.dat$Effort, pch=19, col=rgb(0,0,0,0.4))
-
-# Overall capture rate
-plot(mon.dat$timestamp, mon.dat$Total.CR, ylab="Monthly total captrue rate per 100 days", xlab="Date", type="l", las=1, ylim=c(0, max(mon.dat$Total.CR)))
-points(mon.dat$timestamp, mon.dat$Total.CR, pch=19, col=rgb(0,0,0,0.4))
+```{r}
+# Plot the start and end date for each deployment
+fig <- plot_ly(x = dep$start_date[1:5], y = dep$deployment_id[1:5],type="scatter",
+               height=2000)
+fig
+remove(f1)
 
 ```
 
-### Species-specific temporal trends
 
-Species level variation in monthly capture rates for all species are as follows:
 
-```{r species specific temporal trends, echo=F, eval=T}
-par(mfrow=c(2,3))
-for(i in 1:length(focal.sp))
-{
-  plot(mon.dat$timestamp, mon.dat[,as.character(focal.sp)[i]], ylab="Capture Rate per 100 days", xlab="", type="l", las=1, main=focal.sp[i])
-  points(mon.dat$timestamp, mon.dat[,as.character(focal.sp)[i]], pch=19, col=rgb(0,0,0,0.4))
-}
+# Meta data
 
-```
+Summary information for the project:
 
-# Add additional info to the project data
-
-We are adding some summary data here to make project comparisons easier.
-
-```{r Update project data, echo=F, eval=T}
-pro$nCaptures            <- nrow(dat)
-pro$nSpecies             <- length(unique(as.character(dat$Species)))
-pro$nYears               <- length(unique(substr(dat$timestamp,1,4)))
-pro$nHumans              <- nrow(dat[dat$Species=="Homo sapiens",])
-pro$typesHuman           <- length(unique(dat$Species.Common.Name[dat$Species=="Homo sapiens"]))
-pro$nDeploymentLocations <- length(unique(as.character(dep$placename)))
-pro$nCamDays             <- sum(dep$Days)
-pro$camSpacingAvg        <- round(mean(camera_dist_list$`Distance (m)`),1)
-pro$camSpacingMin        <- round(min(camera_dist_list$`Distance (m)`),1)
-pro$avglatitude          <- mean(dep$latitude)
-pro$avglongitude         <- mean(dep$longitude)
-pro$startDate            <- min(dep$start_date)
-pro$endDate              <- max(dep$start_date)
-
-t(pro[, c("nCaptures", "nSpecies", "nYears", "nHumans",
-"typesHuman", "nDeploymentLocations", "nCamDays",
-"camSpacingAvg", "camSpacingMin","avglatitude", "avglongitude",
-"startDate", "endDate")]) %>%
+```{r, echo=F}
+t(pro) %>%
   kbl() %>%
   kable_styling(full_width = T) %>%
   column_spec(1, bold = T, border_right = T)
 
-```
-
-# Create independent data
-
-Note: This also removes data which falls outside of camera activity periods.
-
-```{r, echo=F, warning=F, message=F}
-
-#independence threshold
-ind_thresh<-30
-
-tmp_dat <- dat
-
-  # Remove observations without animals detected
-  tmp_dat <- tmp_dat[tmp_dat$Blank%in%c("No","NO","FALSE"),]
-  tmp_dat$Species <- as.character(tmp_dat$Species)
-  tmp_dat$placename <- as.character(tmp_dat$placename)
-  
-  # Order the datframe by project, Site, date
-  tmp_dat <- tmp_dat[order(tmp_dat$Project.ID,tmp_dat$placename, tmp_dat$timestamp),]
-  
-  tmp_dat <- tmp_dat %>% 
-    #filter(species == i) %>%
-    arrange(Project.ID,placename) %>% 
-    group_by(placename, Species) %>% 
-    mutate(duration = int_length(timestamp %--% lag(timestamp)))
-  
-  # loop that assign group ID   
-  tmp_dat$Event.ID <- 9999
-  mins <- ind_thresh
-  seq <- as.numeric(paste0(nrow(tmp_dat),0))
-  seq <- round(seq,-(nchar(seq)))
-  for (i in 2:nrow(tmp_dat)) {
-    tmp_dat$Event.ID[i-1]  <- paste0("E",format(seq, scientific = F))
-    if(is.na(tmp_dat$duration[i]) | abs(tmp_dat$duration[i]) > (mins * 60)){
-      seq <- seq + 1 
-    }
-  }
-  
-  # Update the information for the last row
-  # group ID  for the last row
-  if(tmp_dat$duration[nrow(tmp_dat)] < (mins * 60)| 
-     is.na(tmp_dat$duration[nrow(tmp_dat)])){
-    tmp_dat$Event.ID[nrow(tmp_dat)] <- tmp_dat$Event.ID[nrow(tmp_dat)-1] 
-  } else{
-    tmp_dat$Event.ID[nrow(tmp_dat)] <- paste0("E",format(seq+1, scientific = F)) 
-  }
-  
- 
-  # Subset to independent data at the defined interval
-  img.data.ind <- tmp_dat[!duplicated(tmp_dat$Event.ID),]
-  img.data.ind <- as.data.frame(img.data.ind)
-  img.data.ind$Species <-as.factor(img.data.ind$Species)
-
-  # Remove data that doesnt fall within the activity windows of cameras
-  img.data.ind <- img.data.ind[paste(substr(img.data.ind$timestamp,1,10), img.data.ind$placename) %in% paste(row.lookup$Date, row.lookup$placename),]
-  dat <- dat[paste(substr(dat$timestamp,1,10), dat$placename) %in% paste(row.lookup$Date, row.lookup$placename),]
-  
 
 ```
 
-Done. Creating independent data reduced the data frame from `r nrow(dat)` raw observations to `r nrow(img.data.ind)` independent observations.
 
-```{r, echo=F, warning=F, message=F}
-library(ggplot2)
-library(ggpubr)
-
-if(pro$nHumans>0)
-{
-
-Detections<-data.frame()
-
-#subset to species-specific data (main focus is humans and is thus named)
-ind.data_hosa<-img.data.ind[img.data.ind$Species=="Homo sapiens",]
-
-#daily detections - count the number of human detections per day
-tmp <-ind.data_hosa%>%
-    group_by(Date=as.Date(timestamp))%>%
-    dplyr::summarise(Date=as.Date(timestamp),Dets=n())
-
-    tmp<-tmp[!is.na(tmp$Date),]
-    
-    day <- tmp[!duplicated(tmp),]
-    
-#standardize by camera operation
-dailyOp<-data.frame()
-
-#get the deployment data for that project
-dep_tmp<-dep
-
-#create a camera operation table for that project
-camOp_tmp<-matrix(0,nrow=length(unique(dep_tmp$placename)),ncol=length(seq.Date(min(as.Date(dep_tmp$start_date)),max(as.Date(dep_tmp$end_date)),by="day")))
-
-colnames(camOp_tmp)<-as.character(seq.Date(min(as.Date(dep_tmp$start_date)),max(as.Date(dep_tmp$end_date)),by="day"))
-
-rownames(camOp_tmp)<-unique(dep_tmp$placename)
-
-for(d in 1:nrow(dep_tmp)){ #for every deployment period
-  theSite<-which(rownames(camOp_tmp)==dep_tmp$placename[d])
-  theCols<-which(colnames(camOp_tmp)%in%as.character(seq.Date(as.Date(dep_tmp$start_date[d]),
-                                                              as.Date(dep_tmp$end_date[d]),by="day")))
-  camOp_tmp[theSite,theCols]<-camOp_tmp[theSite,theCols]+1
-}
-
-#add the number of camop days and unique cameras operating per week for that project
-dailyOp_tmp<-data.frame(Date=attributes(colSums(camOp_tmp))$names,
-                         Cams=NA)
-
-DaysWhichCam<-list()
-c<- 1
-for(c in 1:nrow(dailyOp_tmp)){
-  #cams that operated that day
-  dailyOp_tmp$Cams[c] <- length(names(which(camOp_tmp[,which(colnames(camOp_tmp)==dailyOp_tmp$Date[c])]>0))) 
-}
-
-
-dailyOp<-dailyOp_tmp
-head(dailyOp)
-
-dailyOp<-dailyOp[!is.na(dailyOp$Date),]
-dailyOp$Date <- as.Date(dailyOp$Date)
-tmp<-left_join(dailyOp,day, by=c("Date"))
-
-tmp$Dets[is.na(tmp$Dets)==T] <- 0
-tmp$week <- paste0(substr(tmp$Date,1,4),"-", week(tmp$Date))
-
-Detections<-tmp
-
-
-p1 <- ggplot(data = Detections, aes(x =Date , y = Dets/Cams))+
-geom_bar(stat = "identity")+
-geom_rug(sides="b")+
-geom_vline(xintercept =as.Date("2020-03-01"), lty=2, col="red") +
-labs(title= "Daily Human detections",x="Date",y="Average humans per day")+
-theme(panel.background = element_blank(),
-axis.line = element_line(colour = "black"),
-plot.title = element_text(size=14, hjust = 0.5),
-axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  scale_x_date(limits = c(as.Date(paste0(substr(min(Detections$Date),1,8),"01")), as.Date(max(Detections$Date))), 
-               breaks = seq(as.Date(paste0(substr(min(Detections$Date),1,8),"01")), as.Date(max(Detections$Date)), "quarter"),
-               date_labels = "%Y-%m-%d", expand=c(0,30)) 
-  
-
-
-# 
-p2 <- ggplot(data=Detections, aes(x=Date, y=Cams)) +
-        geom_line() +
-  geom_vline(xintercept =as.Date("2020-03-01"), lty=2, col="red") +
-theme(panel.background = element_blank(),axis.line = element_line(colour = "black"),
-plot.title = element_text(size=14, hjust = 0.5),
-axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  scale_x_date(limits = c(as.Date(paste0(substr(min(Detections$Date),1,8),"01")), as.Date(max(Detections$Date))), 
-               breaks = seq(as.Date(paste0(substr(min(Detections$Date),1,8),"01")), as.Date(max(Detections$Date)), "quarter"),
-               date_labels = "%Y-%m-%d", expand=c(0,30))
-
-
-} 
-
-```
-
-# Human dynamics through time
-
-The following plot shows the average human capture rate across all of the cameras in the project. The dashed red line is the 1st of March 2020, a rough placeholder for global lockdowns. The x-axis labels are quarterly (every three months).
-
-```{r, echo=F, warning=F, message=F, fig.height=8}
-if(pro$nHumans[1]>0) {
-ggpubr::ggarrange(p1,p2, nrow=2, heights=c(4,2))
-} else {print("Not possible - no human data")}
-```
-
-# Upload cleaned, checked data to Google drive
-
-Issues to be resolved, not yet done.
-
-```{r data upload, echo=F}
-# # # Write cleaned data to clean-data folder
-write.csv(dat, paste0("data/clean-data/Image_data_", pro$Project.ID[1], ".csv"), row.names=F)
-write.csv(dep, paste0("data/clean-data/Deployment_data_", pro$Project.ID[1], ".csv"), row.names=F)
-write.csv(pro[1,], paste0("data/clean-data/Project_data_", pro$Project.ID[1], ".csv"), row.names=F)
-write.csv(img.data.ind,paste0("data/clean-data/Independent_Image_data_",img.data.ind$Project.ID[1],"_",ind_thresh,"min_threshold.csv"), row.names= F)
-
-
-library(googledrive)
-library(purrr)
-
-# Get the id for the clean data folder
-folder_url <- "https://drive.google.com/drive/folders/1nWw0SPMaqgifCs6AGpGmHa1-wQDtAq_L"
-
-drive_upload(
-  paste0("data/clean-data/Image_data_", pro$Project.ID[1], ".csv"),
-  as_id(folder_url), overwrite=T
-)
-
-drive_upload(
-  paste0("data/clean-data/Independent_Image_data_", pro$Project.ID[1], "_",ind_thresh,"min_threshold.csv"),
-  as_id(folder_url), overwrite=T
-)
-
-drive_upload(
-  paste0("data/clean-data/Deployment_data_", pro$Project.ID[1], ".csv"),
-  as_id(folder_url), overwrite=T
-)
-
-drive_upload(
-  paste0("data/clean-data/Project_data_", pro$Project.ID[1], ".csv"),
-  as_id(folder_url), overwrite=T
-)
-
-```
