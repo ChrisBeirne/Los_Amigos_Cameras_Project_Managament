@@ -27,8 +27,8 @@ lapply(list.of.packages, require, character.only = TRUE)
 
 ```{r googledrive setup and file import, include=FALSE}
 #drive_auth()
-
 # run this line, and enter "Yes". It will open up a browser window, and you'll have to allow access to your Google Drive account
+
 x <- drive_find(n_max = 30)
 1
 # Create the file
@@ -65,7 +65,6 @@ for (i in 1:nrow(tmp)) {
                    overwrite=T)
 }
 
-
 ```
 
 ```{r data setup, include=FALSE}
@@ -75,10 +74,20 @@ dep <- read.csv("data/raw-data/deployments.csv", header=T)
 pro <- read.csv("data/raw-data/projects.csv", header=T, sep=",")
 
 # EXTRA FOR THIS PROJECT
-active.deps <- read.csv("data/raw-data/entrada_data.csv", header=T, sep=",")
-colnames(active.deps)[colnames(active.deps)=="deployment_id.LOCATION_CAMERA_STARTDATE"] <- "deployment_id"
+all.deps <- read.csv("data/raw-data/entrada_data.csv", header=T, sep=",")
+colnames(all.deps)[colnames(all.deps)=="deployment_id.LOCATION_CAMERA_STARTDATE"] <- "deployment_id"
+
+# Camera locations master
+all.locs <- read.csv("data/raw-data/Camera_locations_master.csv", header=T, sep=",")
+
 # Remove blank rows
-active.deps <- active.deps[active.deps$deployment_id!="__",]
+all.deps <- all.deps[all.deps$deployment_id!="__",]
+
+# Remove the coordinate information and left_join with the locations master
+all.deps$Latitude <- NULL; all.deps$Longitude <- NULL
+head(all.deps)
+head(all.locs)
+all.deps <- left_join(all.deps, all.locs[,c("Location.Name", "Latitude", "Longitude")], by=c("Location"="Location.Name"))
 
 head(dep)
 # Timezone  
@@ -91,7 +100,16 @@ category <- "subproject_name"
 # Define a colour from the R options to base the colourscheme
 colour <- "lightseagreen"
 
+# Format the date objects
+dat$timestamp <- strptime(dat$timestamp, "%Y-%m-%d %H:%M:%S", tz="America/Lima")
+dep$start_date <- strptime(dep$start_date, "%Y-%m-%d", tz="UTC")
+dep$end_date <- strptime(dep$end_date, "%Y-%m-%d", tz="UTC")
+
+#Calculate days active
+dep$days <- dep$end_date-dep$start_date
+
 ```
+
 
 # `r pro$project_name[1]` Project
 Summary information for the project:
@@ -102,29 +120,47 @@ t(pro) %>%
   kable_styling(full_width = T) %>%
   column_spec(1, bold = T, border_right = T)
 
+# ADD DEPLOYMENT COVERAGE
+tmp <- st_as_sf(all.deps[is.na(all.deps$Longitude)==F,],coords=c("Longitude", "Longitude"),crs=4326)
+
 ```
 
 
 The sub-projects included in this script are `r unique(dep$subproject_name)`.
 
 # Active deployment summary
-The project currently has `r nrow(active.deps[active.deps$End.date=="",])` cameras active in the field. To date the labelling platform contains `nrow(dep)` completed deployments from `r length(unique(dep$subproject_name))` sub-project(s).  
+The project currently has `r nrow(all.deps[all.deps$End.date=="",])` cameras active in the field. To date the labelling platform contains `nrow(dep)` completed deployments from `r length(unique(dep$subproject_name))` sub-project(s).  
 
-
-# ADD DEPLOYMNET COVERAGE
-tmp <- st_as_sf(active.deps[is.na(active.deps$Longitude)==F,],coords=c("Longitude", "Longitude"),crs=4326)
-
-st_area(st_as_sfc(st_bbox(tmp)))/1e+6
-
+The deployments currently span `r paste(round(as.numeric(st_area(st_as_sfc(st_bbox(tmp)))/1e+6),1), "km^2")`
 
 ```{r deployment_smmaries, echo=F}
+all.deps$subproject_nam <- NA 
+all.deps$subproject_nam[substr(all.deps$deployment_id,1,3)=="LAC"] <- "Grids"
+all.deps$subproject_nam[substr(all.deps$deployment_id,1,3)=="FEA"] <- "Features"
+all.deps$subproject_nam[substr(all.deps$deployment_id,1,3)=="VUL"] <- "Carcass_watching"
 
-active.deps$subproject_nam <- NA 
-active.deps$subproject_nam[substr(active.deps$deployment_id,1,3)=="LAC"] <- "Grids"
-active.deps$subproject_nam[substr(active.deps$deployment_id,1,3)=="FEA"] <- "Features"
-active.deps$subproject_nam[substr(active.deps$deployment_id,1,3)=="VUL"] <- "Carcass_watching"
+# Create a list of currently active deployments in odr of time since deployment
+active.deps <- all.deps[all.deps$End.date=="" & is.na(all.deps$End.date)==F,]
+active.deps$Start.date <- strptime(active.deps$Start.date, "%d/%m/%y", tz="UTC")
+
+active.deps$Days <- round(as.numeric(strptime(Sys.Date(), "%Y-%m-%d") -  active.deps$Start.date), 1) 
+
+tmp <- active.deps[, c("deployment_id", "Location", "Days")]
+tmp <- tmp[order(tmp$Days, decreasing=T),]
+
+tmp <- left_join(tmp, all.locs, by=c("Location"= "Location.Name"))
+
+tmp[,c("deployment_id", "Location",  "Days", "Project" ,"Group")] %>%
+  kbl() %>%
+  kable_styling(full_width = T) %>%
+  column_spec(1, bold = T, border_right = T)
 
 
+```
+
+
+
+```{r}
 tmp <- as.data.frame(table(active.deps$subproject_nam))
 
 p1 <- plot_ly(
@@ -135,7 +171,7 @@ p1 <- plot_ly(
 ) %>%
   layout(plot_bgcolor = "#f5f5f5", 
          xaxis = list(title = 'Sub-project'), 
-         yaxis = list(title = 'Completed deployments to date'),
+         yaxis = list(title = 'Total deployments to date'),
          title="Completed deployments")
 
 tmp <- as.data.frame(table(dep$subproject_name))
@@ -157,27 +193,10 @@ subplot(p1, p2)
 
 ```
 
-### Completed deployment summary
-```{r}
-dep$start_date <- strptime(dep$start_date, "%Y-%m-%d", tz="UTC")
-dep$end_date <- strptime(dep$end_date, "%Y-%m-%d", tz="UTC")
-dep$days <- dep$end_date-dep$start_date
-```
 
-```{r}
-p1 <- plot_ly(y = dep$days, type = "box") %>%
-  layout(plot_bgcolor = "#f5f5f5", 
-         xaxis = list(title = ''), 
-         yaxis = list(title = 'Deployment length distribution'),
-         title="Deployment summaries")
+# Camera status at the end of deployment
 
-p2 <- 
-
-
-```
-
-
-```{r number.of.species}
+```{r camera status}
 tmp <- as.data.frame(table(dep$camera_functioning))
 
 colnames(tmp) <- c("Category", "number")
@@ -191,11 +210,6 @@ plot_ly(tmp, labels = ~Category, values = ~number, type = 'pie',
 ```
 
 
-### Which cameras need servicing?
-Ideally, we would not leave camera traps active for 3 months without checking them. As of `r sys.time()` 
-
-
-
 ### Do all deployments have associated images?
 
 Of the deployments currently in Wildlife Insights, `r paste0((length(dep$deployment_id[dep$deployment_id %in% dat$deployment_id])/nrow(dep))*100, "%")` of deployments have associated image data.
@@ -203,40 +217,95 @@ Of the deployments currently in Wildlife Insights, `r paste0((length(dep$deploym
 *Note - our current workflow should mean that deployments ALWAYS have image data. If the percentage is <100% then there is a problem*
 
 
-
-## Deployment locations [Active]
-
-
+```{r, echo=F}
+# Plot the camera activity profiles
 
 
 
 
 
-## Deployment locations [Completed]
 
-To date there have been camera deployments at `r length(unique(dep$placename))` unique locations.
+
+
+```
+
+
+## Deployment locations [All]
 
 ```{r, echo=F, include=F}
 # Generate colours to display the category levels - R needs them as a factor
-dep[,category] <- factor(dep[,category])
-col.cat <- wheel(colour, num = length(levels(dep[,category])))
-dep$Cols <- col.cat[dep[,category]]
+table(all.deps$Subprojet)
+all.deps[,category] <- factor(all.deps[,"Subprojet"])
+col.cat <- wheel(colour, num = length(levels(all.deps[,category])))
+all.deps$Cols <- col.cat[all.deps[,category]]
 ```
 
 ```{r map, echo=F}
 
 # Count the number of camera ststions
-n.stat <- length(unique(dep$deployment_id))
+n.stat <- length(unique(all.deps$deployment_id))
 
 m <- leaflet() %>%
   addProviderTiles(providers$Esri.WorldTopoMap, group="Base") %>%
   addProviderTiles(providers$Esri.WorldImagery, group="Satellite") %>%  # Add satellite data
   
-  addCircleMarkers(lng= dep$longitude, lat= dep$latitude,
-                   color= dep$Cols,
-                   popup=paste( dep$placename,  dep[,category])) %>%
- addLegend("topleft", colors = col.cat,  labels = levels( dep[,category]),
+  addCircleMarkers(lng= all.deps$Longitude, lat= all.deps$Latitude,
+                   color= all.deps$Cols,
+                   popup=paste( all.deps$Location,  all.deps[,category])) %>%
+ addLegend("topleft", colors = col.cat,  labels = levels( all.deps[,category]),
     title = category,
+    labFormat = labelFormat(prefix = "$"),
+    opacity = 1
+  ) %>%
+  # Layers control
+  addLayersControl(
+    baseGroups = c("Satellite", "Base"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+m
+
+```
+
+## Deployment locations [Active]
+
+To date there have been camera deployments at `r length(unique(dep$placename))` unique locations.
+
+```{r, echo=F, include=F}
+# Generate colours to display the category levels - R needs them as a factor
+active.deps <- active.deps[is.na(active.deps$Latitude)==F,]
+# Create a continuous palette function
+pal <- colorNumeric(
+  palette = "Reds",
+  domain = active.deps$Days)
+
+active.deps$Cols <- pal(active.deps$Days)
+
+# Make a legend key
+tmp<- data.frame(Cols=c(active.deps$Cols[active.deps$Days==min(active.deps$Days)][1],
+                  active.deps$Cols[nrow(active.deps)/2],
+                  active.deps$Cols[active.deps$Days==max(active.deps$Days)][1]),
+           Labels=c(active.deps$Days[active.deps$Days==min(active.deps$Days)][1],
+                  active.deps$Days[nrow(active.deps)/2],
+                  active.deps$Days[active.deps$Days==max(active.deps$Days)][1]))
+
+
+```
+
+```{r map, echo=F}
+
+# Count the number of camera ststions
+n.stat <- length(unique(active.deps$deployment_id))
+
+m <- leaflet() %>%
+  addProviderTiles(providers$Esri.WorldTopoMap, group="Base") %>%
+  addProviderTiles(providers$Esri.WorldImagery, group="Satellite") %>%  # Add satellite data
+  
+  addCircleMarkers(lng= active.deps$Longitude, lat= active.deps$Latitude,
+                   color=active.deps$Cols ,
+                   popup=paste( active.deps$Location, "-" , active.deps$Days, "days active")) %>%
+ 
+  addLegend("topleft", colors = tmp$Cols,  labels = tmp$Labels,
+    title = "Days active",
     labFormat = labelFormat(prefix = "$"),
     opacity = 1
   ) %>%
