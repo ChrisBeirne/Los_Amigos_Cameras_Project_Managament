@@ -1,0 +1,82 @@
+---
+title: "2_distance_sample_selection"
+author: "Chris B"
+date: "18/02/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Distance project
+For this project we need to measure the speed of different species at different locations (on and off trail). We will start with the data from two locations: LAC021 and LAC038
+
+```{r}
+
+# Make a list to store all of the selected images
+selected <- list()
+
+#For each location explore how many seperate vents we have -> we need to subset to independent data
+ind_dat<- ind.dat
+
+# Reduce to verified
+ind_dat <- ind_dat[ind_dat$identified_by != "Computer vision",]
+
+# Make a list of all the stations you want to check that day
+checks <- c("LAC021", "OFF021", "LAC038", "OFF038")
+
+table(ind_dat$common_name[ind_dat$deployment_location_id %in% checks])
+
+# Make a list of excluded species
+exclude <- c("Baird's Tapir", "Central American Agouti", "Common Squirrel Monkey", "Southern Amazon Red Squirrel", "Spix's Guan")
+
+# OFF-TRAIL
+table(ind_dat$common_name[ind_dat$deployment_location_id%in% checks & ind_dat$duration>1 & ind_dat$species!="sapiens" & ind_dat$genus!="" & !(ind_dat$species== "" & ind_dat$genus!="Dasypus") & !(ind_dat$common_name %in% exclude)])
+
+# Pick max two of each species for site
+tmp <- ind_dat[ind_dat$deployment_location_id %in% checks & ind_dat$duration>1 & ind_dat$species!="sapiens" & ind_dat$genus!="" & !(ind_dat$species== "" & ind_dat$genus!="Dasypus") & !(ind_dat$common_name %in% exclude),]
+
+# IN FUTURE REMOVE OBSERVATIONS WHICH HAVE ALREADY BEEN DONE
+k <- 1
+i <- 1
+for(k in 1:length(unique(tmp$deployment_location_id)))
+{
+    tmp_list <- list()
+    tmp2 <- tmp[tmp$deployment_location_id==unique(tmp$deployment_location_id)[k],]
+    for(i in 1: length(unique(tmp2$common_name)))
+    {
+      tmp3 <- tmp2[tmp2$common_name==unique(tmp2$common_name)[i],]
+      
+      if(nrow(tmp3)>1)
+      {
+      trans <- tmp3[sample(nrow(tmp3), 2), ]
+      trans <- trans[,c("deployment_id","sp", "common_name", "timestamp")]
+      # If they were on the same day at the same station remove one
+      trans <- trans[duplicated(paste(trans$common_name, substr(trans$timestamp,1,10)))==F,]
+      
+      
+      tmp_list[[i]] <- trans
+      }
+      if(nrow(tmp3)==1)
+      {
+      trans <- tmp3[sample(nrow(tmp3), 1), ]
+      trans <- trans[,c("deployment_id","sp", "common_name", "timestamp")]
+      tmp_list[[i]] <- trans
+      }
+      
+    }
+    selected <- bind_rows(selected, tmp_list)
+}
+
+selected
+
+selected <- selected[order(as.numeric(substr(selected$deployment_id,4,6))),]
+
+# Copy to clipboard
+write.table(selected, "clipboard", sep="\t", row.names=FALSE)
+
+```
+
