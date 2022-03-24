@@ -89,3 +89,24 @@ write.csv(ind_dat, paste0("data/processed-data/LosAmigos_",independent ,"min_Ind
 # Also export the effort lookup
 write.csv(row.lookup, paste0("data/processed-data/LosAmigos_daily_effort_lookup.csv"), row.names = F)
 
+# Write to googledrive
+
+
+library(googledrive)
+drive_auth()
+1
+# and export to drive
+folder_url <- "https://drive.google.com/drive/u/0/folders/1-is1Mbwqg-bZVVBYfDX8lRMYSnXoGAbd"
+
+# Data
+drive_upload(
+  paste0("data/processed-data/LosAmigos_",independent ,"min_Independent.csv"),
+  as_id(folder_url), overwrite=T
+)
+
+# Lookup
+drive_upload(
+  paste0("data/processed-data/LosAmigos_daily_effort_lookup.csv"),
+  as_id(folder_url), overwrite=T
+)
+

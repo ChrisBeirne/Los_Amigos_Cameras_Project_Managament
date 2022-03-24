@@ -16,32 +16,59 @@ For this project we need to measure the speed of different species at different 
 
 ```{r}
 
+# Download the independent data
+folder_url <- "https://drive.google.com/drive/u/0/folders/1-is1Mbwqg-bZVVBYfDX8lRMYSnXoGAbd"
+folder <- drive_get(as_id(folder_url))
+csv_files <- drive_ls(folder, type = "csv", recursive=F)
+
+library(googlesheets4)
+
+velocidad_animal <- read_sheet(drive_get("https://docs.google.com/spreadsheets/d/1-2HdDFhLWqQE-vud_E4klfQzVvpEc56AboXIKZlYN_I")) 
+
+
+# Clear the folder (overwriting old files)
+do.call(file.remove, list(list.files("data/processed-data/", full.names = TRUE)))
+
+# Downloads all the files into a subfolder
+for (i in 1:nrow(csv_files)) {
+    drive_download(as_id(csv_files$id[i]),
+                   path = paste("data/processed-data/", csv_files$name[i], sep = "/"),
+                   overwrite=T)
+}
+
+ind.dat <- read.csv("data/processed-data/LosAmigos_10min_Independent.csv")
+
 # Make a list to store all of the selected images
 selected <- list()
-
-#For each location explore how many seperate vents we have -> we need to subset to independent data
-ind_dat<- ind.dat
 
 # Reduce to verified
 ind_dat <- ind_dat[ind_dat$identified_by != "Computer vision",]
 
 # Make a list of all the stations you want to check that day
-checks <- c("LAC021", "OFF021", "LAC038", "OFF038")
+checks <- c("LAC022", "OFF022", "LAC023", "OFF023", "LAC011", "OFF011", "LAC001", "OFF001")
+
+table(substr(velocidad_animal$deployment,1,6))
 
 table(ind_dat$common_name[ind_dat$deployment_location_id %in% checks])
 
 # Make a list of excluded species
-exclude <- c("Baird's Tapir", "Central American Agouti", "Common Squirrel Monkey", "Southern Amazon Red Squirrel", "Spix's Guan")
+exclude <- c("Baird's Tapir", "Central American Agouti", "Common Squirrel Monkey", "Southern Amazon Red Squirrel", "Spix's Guan", "Blank", "Homo sapiens", "Atelocynus Species", "Bird","Carnivorous Mammal", "Cat Family", "Columbidae Family", "Cracidae Family", "Dasyprocta Species", "Virginia Opossum", "Bolivian/peruvian Squirrel Monkey", "Horseback Rider", "Slate-colored Hawk")
 
-# OFF-TRAIL
+# Check names
 table(ind_dat$common_name[ind_dat$deployment_location_id%in% checks & ind_dat$duration>1 & ind_dat$species!="sapiens" & ind_dat$genus!="" & !(ind_dat$species== "" & ind_dat$genus!="Dasypus") & !(ind_dat$common_name %in% exclude)])
 
-# Pick max two of each species for site
+# Subset data
 tmp <- ind_dat[ind_dat$deployment_location_id %in% checks & ind_dat$duration>1 & ind_dat$species!="sapiens" & ind_dat$genus!="" & !(ind_dat$species== "" & ind_dat$genus!="Dasypus") & !(ind_dat$common_name %in% exclude),]
 
+# NUMBER OF SAMPLES
+n.samps <- 3
+
+tmp$sp <- paste(tmp$genus, tmp$species)
 # IN FUTURE REMOVE OBSERVATIONS WHICH HAVE ALREADY BEEN DONE
 k <- 1
 i <- 1
+
+
 for(k in 1:length(unique(tmp$deployment_location_id)))
 {
     tmp_list <- list()
@@ -50,16 +77,24 @@ for(k in 1:length(unique(tmp$deployment_location_id)))
     {
       tmp3 <- tmp2[tmp2$common_name==unique(tmp2$common_name)[i],]
       
-      if(nrow(tmp3)>1)
+      if(nrow(tmp3)>2)
+      {
+      trans <- tmp3[sample(nrow(tmp3), n.samps), ]
+      trans <- trans[,c("deployment_id","sp", "common_name", "timestamp")]
+      # If they were on the same day at the same station remove one
+      trans <- trans[duplicated(paste(trans$common_name, substr(trans$timestamp,1,10)))==F,]
+      tmp_list[[i]] <- trans
+      }
+      
+      if(nrow(tmp3)==2)
       {
       trans <- tmp3[sample(nrow(tmp3), 2), ]
       trans <- trans[,c("deployment_id","sp", "common_name", "timestamp")]
       # If they were on the same day at the same station remove one
       trans <- trans[duplicated(paste(trans$common_name, substr(trans$timestamp,1,10)))==F,]
-      
-      
       tmp_list[[i]] <- trans
       }
+      
       if(nrow(tmp3)==1)
       {
       trans <- tmp3[sample(nrow(tmp3), 1), ]
