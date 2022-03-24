@@ -44,3 +44,7 @@ vignettes/*.pdf
 /*.csv
 data/
 /data
+
+# Outputs
+.html
+*.html
