@@ -1,0 +1,129 @@
+---
+title: "4_Pair_camera_data_extraction"
+author: "Chris B"
+date: "14/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(dplyr)
+library(stringr)
+
+dir.create("Individual_identification")
+
+
+
+# File path to the images
+img_loc <- "F:/LosAmigosBackup-18042022/Camera_data/Photos/0_Uploaded To Wildlife Insights"
+
+# File path to the identification folder
+img_dest <- "F:/LosAmigos_Cat_Identification/"
+
+```
+
+## Extracting pair camera photos 
+
+If we are going to exploit the paired camera data, we need to extract it and store it in an accessible way. I propose extracting all of the unique events where a jaguar was detected within 10 minutes of one another at paired sites.  
+
+### Import the 10 minute independent data
+
+```{r cars}
+
+# Select the most recent
+
+ind_dat <- read.csv("data/processed-data/LosAmigos_10min_Independent.csv", header=T)
+dat <- read.csv("data/processed-data/LosAmigos_all_image_data.csv", header=T)
+
+# Join with the station data to get the "pairs" locations
+all.locs <- read.csv("data/raw-data/Camera_locations_master.csv", header=T, sep=",")
+str(all.locs)
+str(ind_dat)
+
+pair_dat <- left_join(ind_dat, all.locs[, c("Location.Name", "Type")], by=c("deployment_location_id"="Location.Name"))
+
+table(pair_dat$Type)
+
+pair_dat <- pair_dat[pair_dat$Type=="Pairs" & is.na(pair_dat$Type)==F,]
+
+```
+
+## Jaguars
+
+Start with just the jaguars. Match stations with the same location ID and start date?
+
+```{r pressure, echo=FALSE}
+
+dir.create(paste0(img_dest, "/Jaguar/"))
+dir.create(paste0(img_dest, "/Jaguar/Pairs"))
+dir.create(paste0(img_dest, "/Jaguar/Singles"))
+
+#dep_code <- paste(substr(pair_dat$deployment_id,1,6),substr(pair_dat$deployment_id,13,18), #sep="_")
+
+# Jaguar
+tmp_ind <- ind_dat[ind_dat$common_name=="Jaguar",]
+tmp_ind$timestamp <- strptime(tmp_ind$timestamp, "%Y-%m-%d %H:%M:%S", tz="UTC")
+
+tmp_raw <- dat[dat$common_name=="Jaguar",]
+tmp_raw$timestamp <- strptime(tmp_raw$timestamp, "%Y-%m-%d %H:%M:%S", tz="UTC")
+i <- 76
+for(i in 1:nrow(tmp_ind))
+{
+  # Subset all the raw data which occur in at the same station within 30 mins
+    tmp_raw$diffs <- difftime(tmp_raw$timestamp, tmp_ind$timestamp[i], units="mins")
+    
+    tmp_event <- tmp_raw[tmp_raw$deployment_location_id == tmp_ind$deployment_location_id[i] & tmp_raw$diffs > (-30) & tmp_raw$diffs < (30) ,]
+  # order the event so the first trigger is first
+    tmp_event <- tmp_event[order(tmp_event$timestamp),]
+    
+  # If a file already exists, skip the loop  
+    tmp_name <- paste0(substr(tmp_event$deployment_id[1],1,6), "_", substr(tmp_event$timestamp[1],1,10),"_" ,substr(tmp_event$timestamp[1],12,19)) 
+    
+    # Replace not allowed characters
+    tmp_name <- str_replace_all(tmp_name, ":", "-")
+    
+    tmp_existing <- c(list.files(paste0(img_dest, "Jaguar/Pairs")), list.files(paste0(img_dest, "Jaguar/Singles")))
+    
+    # If the file name doesnt exist in the list
+    if(!tmp_name %in% tmp_existing)
+    {
+      # Subset the file locations
+      tmp_files <- paste0(img_loc, "/" ,tmp_event$deployment_id,"/",tmp_event$filename)
+    
+      # Some files are nested within other folders (e.g. )
+      if(length(tmp_files[file.exists(tmp_files)==FALSE])>0)
+      {
+          tmp_sub <- list.files(substr(tmp_files[file.exists(tmp_files)==FALSE], 1,97))
+          tmp_files[file.exists(tmp_files)==FALSE] <- paste0(img_loc, "/" ,tmp_event$deployment_id[file.exists(tmp_files)==FALSE],"/",tmp_sub,"/",tmp_event$filename[file.exists(tmp_files)==FALSE])
+          
+      }
+          
+      # If detected at two stations in one event - pairs
+      if(length(unique(tmp_event$deployment_id))==2)
+      {
+          dir.create(paste0(img_dest, "/Jaguar/Pairs/", tmp_name))
+          file.copy(tmp_files,paste0(img_dest, "/Jaguar/Pairs/", tmp_name) )
+      }
+  
+      # If detected at one station in an event - singles
+      if(length(unique(tmp_event$deployment_id))==1)
+      {
+          dir.create(paste0(img_dest, "/Jaguar/Singles/", tmp_name))
+          file.copy(tmp_files,paste0(img_dest, "/Jaguar/Singles/", tmp_name) )
+          
+      }
+    }
+    
+    
+  print(paste(i, "of", nrow(tmp_ind)))
+}
+
+# Missing events- the images ARE on wildlife insights - check with Flor
+# F:\LosAmigosBackup-18042022\Camera_data\Photos\0_Uploaded To Wildlife Insights\LAC042_C058_050921\IMG_0622.JPG
+
+
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

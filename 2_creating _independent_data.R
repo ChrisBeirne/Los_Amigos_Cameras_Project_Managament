@@ -1,5 +1,18 @@
+#Load Packages
+list.of.packages <- c("leaflet", "dplyr", "colortools", "kriging", "corrplot", "lubridate", "kableExtra", "rredlist","sf", "usedist", "ggplot2", "ggpubr", "googledrive", "purrr", "plotly", "googlesheets4")
+
+# Check you have them and load them
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+lapply(list.of.packages, require, character.only = TRUE)
+
+
 # Create independent data
-# Interval
+
+dat <- read.csv("data/processed-data/LosAmigos_all_image_data.csv", header=T)
+
+# Interval for independence in minutes
 independent <- 10
 
 # Remove observations without animals detected
@@ -8,6 +21,7 @@ dat <- dat[dat$is_blank==0 & dat$species!="No CV Result",]
 # Order the framed by deployment_id, date
 dat <- dat[order(dat$deployment_id, dat$timestamp),]
 
+
 ### NEW WAY
 dat <- dat %>%
   #filter(Species == i) %>%
@@ -15,7 +29,8 @@ dat <- dat %>%
   group_by(deployment_id, wi_taxon_id) %>%
   mutate(duration = int_length(timestamp %--% lag(timestamp)))
 
-# loop that assign group ID
+
+# loop that assigns group ID
 dat$event_id <- 9999
 mins <- independent
 seq <- as.numeric(paste0(nrow(dat),0))
