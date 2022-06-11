@@ -68,6 +68,7 @@ for (i in 1:nrow(tmp)) {
                    overwrite=T)
 }
 
+
 ```
 
 ```{r data setup, include=FALSE}
@@ -79,6 +80,28 @@ pro <- read.csv("data/raw-data/projects.csv", header=T, sep=",")
 # EXTRA FOR THIS PROJECT
 all.deps <- read.csv("data/raw-data/entrada_data.csv", header=T, sep=",")
 colnames(all.deps)[colnames(all.deps)=="deployment_id.LOCATION_CAMERA_STARTDATE"] <- "deployment_id"
+
+#####################################
+# Read in speed data
+library(googlesheets4)
+library(tidyr)
+googlesheets4::gs4_auth()
+1
+1
+
+
+speed <- read_sheet(drive_get("https://docs.google.com/spreadsheets/d/1-2HdDFhLWqQE-vud_E4klfQzVvpEc56AboXIKZlYN_I"), col_types="cccccttcnc")
+head(speed)
+
+
+# Read in vulture data
+
+carcass <- read_sheet(drive_get("https://docs.google.com/spreadsheets/d/1uQCJFlRHXTbn2Q2pfKMwapMPmy_qH6U-wP0gREDLmZI"), col_types="c")
+# Add date time
+carcass$Date_time_deployed <- strptime(carcass$Date_time_deployed," %d/%m/%Y %H:%M:%S", tz="America/Lima")
+###############################
+
+
 
 # Add location ID column
 all.deps$deployment_location_id <- substr(all.deps$deployment_id,1,6)
@@ -133,7 +156,7 @@ active.deps$Days <- round(as.numeric(strptime(Sys.Date(), "%Y-%m-%d") -  active.
 # ADD DEPLOYMENT COVERAGE
 tmp <- st_as_sf(all.deps[is.na(all.deps$Longitude)==F,],coords=c("Longitude", "Latitude"),crs=4326)
 
-
+active.deps[substr(active.deps$deployment_id,1,3)=="FEA",]
 
 ```
 
@@ -176,7 +199,7 @@ m <- leaflet() %>%
   
   addCircleMarkers(lng= active.deps$Longitude, lat= active.deps$Latitude,
                    color=active.deps$Cols ,
-                   popup=paste( active.deps$Location, "-" , active.deps$Days, "days active"), radius=3) %>%
+                   popup=paste( active.deps$deployment_location_id, "-" , active.deps$Days, "days active"), radius=3) %>%
  
   addLegend("topleft", colors = tmp$Cols,  labels = tmp$Labels,
     title = "Days active",
@@ -243,7 +266,7 @@ col.cat <- wheel(colour, num = length(levels(all.deps[,category])))
 all.deps$Cols <- col.cat[all.deps[,category]]
 ```
 
-```{r map, echo=F}
+```{r map, echo=F, warning=F, message=F}
 
 # Count the number of camera ststions
 n.stat <- length(unique(all.deps$deployment_id))
@@ -269,56 +292,6 @@ m
 
 ```
 
-# Active features summary
-
-Summary of the currently deployed features cameras:
-```{r}
-table(active.deps[active.deps$Subprojet=="Features",]$Type.of.station)
-
-```
-
-## Plot of locations
-
-
-```{r, echo=F, include=F}
-tmp <- active.deps[active.deps$Subprojet=="Features",]
-
-# Generate colours to display the category levels - R needs them as a factor
-tmp[,category] <- factor(tmp[,"Type.of.station"])
-col.cat <- wheel(colour, num = length(levels(tmp[,category])))
-tmp$Cols <- col.cat[tmp[,category]]
-```
-
-```{r map features, echo=F}
-
-
-# Count the number of camera ststions
-n.stat <- length(unique(tmp$deployment_id))
-
-m <- leaflet() %>%
-  addProviderTiles(providers$Esri.WorldTopoMap, group="Base") %>%
-  addProviderTiles(providers$Esri.WorldImagery, group="Satellite") %>%  # Add satellite data
-  
-  addCircleMarkers(lng= tmp$Longitude, lat= tmp$Latitude,
-                   color= tmp$Cols,
-                   popup=paste( tmp$deployment_location_id,  tmp[,category]), radius=3) %>%
- addLegend("topleft", colors = col.cat,  labels = levels( tmp[,category]),
-    title = category,
-    labFormat = labelFormat(prefix = "$"),
-    opacity = 1
-  ) %>%
-  # Layers control
-  addLayersControl(
-    baseGroups = c("Satellite", "Base"),
-    options = layersControlOptions(collapsed = FALSE)
-  ) %>%
-  addMarkers(
-    lng = tmp$Longitude, lat = tmp$Latitude,
-    label = tmp$deployment_location_id,
-    labelOptions = labelOptions(noHide = T))
-m
-
-```
 
 # Wildlife Insights Summary
 
@@ -426,18 +399,21 @@ fig
 ```
 
 # Diel time
-For any species detected more than 10 times, we will plot when they were detected:
+For any species detected more than 100 times, we will plot when they were detected:
 
 ```{r, echo=F, warning=F, message=F}
 vdat$hours <- hour(vdat$timestamp) + minute(vdat$timestamp)/60 + second(vdat$timestamp)/(60*60)
 
+# Susbet to more than 100 captures
+tmp <- det.sum.total[det.sum.total$n>100,]
 
 yform <- list(categoryorder = "array",
-              categoryarray = det.sum.total$common_name,
+              categoryarray = tmp$common_name,
               tickfont = list(size = 7))
+tmp2 <- vdat[vdat$common_name %in% yform$categoryarray,]
 
-fig <- plot_ly(x = vdat$hours, y = vdat$common_name,type="scatter",
-               height=2000, text=vdat$deployment_id, hoverinfo='text',
+fig <- plot_ly(x = tmp2$hours, y = tmp2$common_name,type="scatter",
+               height=1000, text=tmp2$deployment_id, hoverinfo='text',
                mode   = 'markers',
                marker = list(size = 5,
                              color = 'rgba(50, 100, 255, .2)',
@@ -459,6 +435,7 @@ We have been recording detection distances for species at stations with sticks. 
 table(dat$individual_animal_notes)
 dat$individual_animal_notes[dat$individual_animal_notes=="0--2"] <- "0-2"
 dat$individual_animal_notes[dat$individual_animal_notes=="0.2"] <- "0-2"
+dat$individual_animal_notes[dat$individual_animal_notes=="0-4"] <- ""
 dat$individual_animal_notes[dat$individual_animal_notes=="2.4"] <- "2-4"
 dat$individual_animal_notes[dat$individual_animal_notes=="2--4"] <- "2-4"
 dat$individual_animal_notes[dat$individual_animal_notes=="2-4"] <- "2-4"
@@ -467,6 +444,8 @@ dat$individual_animal_notes[dat$individual_animal_notes=="2=4"] <- "2-4"
 dat$individual_animal_notes[dat$individual_animal_notes=="24"] <- "2-4"
 dat$individual_animal_notes[dat$individual_animal_notes=="6-8"] <- "6+"
 dat$individual_animal_notes[dat$individual_animal_notes=="6 plus"] <- "6+"
+dat$individual_animal_notes[dat$individual_animal_notes=="+6"] <- "6+"
+dat$individual_animal_notes[dat$individual_animal_notes=="6 +"] <- "6+"
 
 
 dat_dist <- dat[dat$individual_animal_notes!="",]
@@ -489,6 +468,11 @@ So far we have data from `r length(tmp)` different locations, of which `r length
 
 tmp <- dat_dist %>% group_by(common_name , individual_animal_notes, .drop=FALSE) %>% summarise("freq"=n()) 
 
+# Remove boring classifications
+#unique(tmp$common_name)
+tmp <- tmp[!tmp$common_name %in% c("Animal", "Bird", "Cervidae Family", "Columbidae Family", "Dasyproctidae Family", "Lizards and Snakes", "Mammal", "No CV Result", "Penelope Species"), ]
+
+
 par(mfrow=c(3,3))
 par(mar=c(4,4,2,1))
 
@@ -504,13 +488,6 @@ for(i in 1:length(unique(tmp$common_name)))
 # Speed data
 
 ```{r, echo=F, warning=F, message=F, include=F}
-library(googlesheets4)
-library(tidyr)
-googlesheets4::gs4_auth()
-1
-
-speed <- read_sheet(drive_get("https://docs.google.com/spreadsheets/d/1-2HdDFhLWqQE-vud_E4klfQzVvpEc56AboXIKZlYN_I"), col_types="cccccttcnc")
-head(speed)
 
 #Calculate speed in kmph
 library(lubridate)
@@ -542,16 +519,10 @@ for(i in 1:length(speed_sp))
 
 # Carcass patterns 
 
-# CHRIS ADD RADIAL PLOTS
-
 Detections in the first 10 days (240 hours) after carcasses placement.
 
-```{r, echo=F}
+```{r, echo=F, warning=F, message=F}
 # I need a mechanism to record the exact time we left the carcass!
-
-carcass <- read_sheet(drive_get("https://docs.google.com/spreadsheets/d/1uQCJFlRHXTbn2Q2pfKMwapMPmy_qH6U-wP0gREDLmZI"), col_types="c")
-# Add date time
-carcass$Date_time_deployed <- strptime(carcass$Date_time_deployed," %d/%m/%Y %H:%M:%S", tz="America/Lima")
 
 
 vul_dat <- vdat[substr(vdat$deployment_id,1,3)=="VUL",]
@@ -574,11 +545,18 @@ for(i in 1:length(unique(vul_dat$deployment_location_id)))
   # Barplot
   tmp_summary <- tmp_summary[order(tmp_summary$Obs),]
   barplot(tmp_summary$Obs, names.arg=tmp_summary$sp, las=2, cex.names=0.8, ylab="Number of observations")
-  # Activity
-  tmp_summary <- tmp_summary[order(tmp_summary$Timing),]
-  barplot(tmp_summary$Timing, names.arg=tmp_summary$sp, las=2, cex.names=0.8, ylab="Mean detection time")
-  
+  # # Activity
+  # tmp_summary <- tmp_summary[order(tmp_summary$Timing),]
+  # barplot(tmp_summary$Timing, names.arg=tmp_summary$sp, las=2, cex.names=0.8, ylab="Mean detection time")
+  # Arrival order
+  tmp2 <- tmp[duplicated(tmp$common_name)==F,]
+  plot(c(1,3), c(1,nrow(tmp2)), xaxt="n", yaxt="n", type="n", xlab="", ylab="", main= "Arrival order")
+  points(rep(1, times=nrow(tmp2)), nrow(tmp2):1, pch=19)
+  text(rep(1.1, times=nrow(tmp2)),nrow(tmp2):1, paste(tmp2$common_name, "-", round(tmp2$timer_hrs,1), "h"), pos=4, cex=0.8 )
+  axis(2, at=nrow(tmp2):1, labels=1:nrow(tmp2), las=1)
 }
+
+
 ```
 
 
@@ -587,6 +565,10 @@ for(i in 1:length(unique(vul_dat$deployment_location_id)))
 Not yet implemented.
 
 ```{r}
+library(plotrix)
+
+
+
 
 ```
 
@@ -717,8 +699,7 @@ feats <- all.locs[all.locs$Project == "Features",]
 
 feats_sf <- st_as_sf(feats, coords=c("Longitude", "Latitude"), crs=4326)
 
-st_write(feats_sf, "data/shapefiles/Feature_locations.shp")
-
+#st_write(feats_sf, "data/shapefiles/Feature_locations.shp", delete_layer=T)
 
 ```
 

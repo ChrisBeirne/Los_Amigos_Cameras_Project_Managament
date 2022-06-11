@@ -1,0 +1,126 @@
+---
+title: "6_Daily_labelling_tracker"
+author: "Chris B"
+date: "23/04/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#Load Packages
+list.of.packages <- c("leaflet", "dplyr", "colortools", "kriging", "corrplot", "lubridate", "kableExtra", "rredlist","sf", "usedist", "ggplot2", "ggpubr", "googledrive", "purrr", "plotly", "googlesheets4")
+library("googlesheets4")
+# Check you have them and load them
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+lapply(list.of.packages, require, character.only = TRUE)
+
+
+# URL
+tmp2 <- read_sheet("https://docs.google.com/spreadsheets/d/1DN3_UOezRG-NLX_85cizpcU9_XGX9-ieD5iE466KOLI")
+
+1
+```
+
+## Read in the google sheets
+
+```{r}
+
+
+# read in the current data
+dat <- read.csv("data/raw-data/images.csv", header=T)
+# dat$identified_by[dat$identified_by==""] <- "Caleb"
+# dat$identified_by[dat$identified_by=="Christopher Beirne"] <- "Chris"
+# dat$identified_by[dat$identified_by=="Flor Maria Perez Mullisaca"] <- "Flor"
+# dat$identified_by[dat$identified_by=="Rosio Vega"] <- "Rosio"
+
+
+tmp3 <- tmp2[1,]
+tmp3$Date[1] <- as.character(Sys.time())
+
+# Totals
+tmp3$Caleb[1] <- nrow(dat[dat$identified_by=="Caleb Jonatan Quispe Quispe",])
+tmp3$Rosio[1] <- nrow(dat[dat$identified_by=="Rosio Vega",])
+tmp3$Flor[1] <- nrow(dat[dat$identified_by=="Flor Maria Perez Mullisaca",])
+tmp3$Chris[1] <- nrow(dat[dat$identified_by=="Christopher Beirne",])
+
+# Change
+tmp3$Caleb_change <- tmp3$Caleb[1]-tmp2$Caleb[nrow(tmp2)]
+tmp3$Rosio_change <- tmp3$Rosio[1]-tmp2$Rosio[nrow(tmp2)]
+tmp3$Flor_change <- tmp3$Flor[1]-tmp2$Flor[nrow(tmp2)]
+tmp3$Chris_change <- tmp3$Chris[1]-tmp2$Chris[nrow(tmp2)]
+
+tmp3$Days <- as.numeric(difftime(tmp3$Date[1],tmp2$Date[nrow(tmp2)], units="days" ))
+
+#Bind
+lab_res <- rbind(tmp2, tmp3)
+
+```
+
+```{r}
+# Make some plots
+library(tidyr)
+
+pivot_longer(lab_res, cols="Date")
+
+lab_long <- lab_res %>%
+  pivot_longer(!c(Date, Days), names_to = "category", values_to = "count")
+
+
+library(MetBrewer)
+cols <-  met.brewer("Egypt", 4)
+
+
+
+# Totals
+# Totals
+cat <- c("Caleb", "Rosio", "Flor", "Chris")
+par(mfrow=c(1,2))
+
+par(mar=c(5,7,1,1))
+plot(lab_long$Date[lab_long$category %in% cat], 
+     lab_long$count[lab_long$category %in% cat],
+     las=1, ylab="", xlab="Date",
+     ylim=extendrange(lab_long$count[lab_long$category %in% cat]), pch=19, cex=1.2)
+
+for(i in 1:length(cat))
+{
+  lines(lab_long$Date[lab_long$category == cat[i]],
+        lab_long$count[lab_long$category == cat[i]],
+        col=cols[i], lwd=2)
+}
+
+mtext("Total images labelled", side=2, line=5)
+# Change
+cat <- c("Caleb_change", "Rosio_change", "Flor_change", "Chris_change")
+
+par(mar=c(5,7,1,1))
+plot(lab_long$Date[lab_long$category %in% cat], 
+     (lab_long$count[lab_long$category %in% cat]/lab_long$Days[lab_long$category %in% cat]),
+     las=1, ylab="", xlab="Date",
+     ylim=extendrange((lab_long$count[lab_long$category %in% cat]/lab_long$Days[lab_long$category %in% cat])), pch=19)
+
+for(i in 1:length(cat))
+{
+  lines(lab_long$Date[lab_long$category == cat[i]],
+        lab_long$count[lab_long$category == cat[i]]/lab_long$Days[lab_long$category == cat[i]] ,
+        col=cols[i], lwd=2)
+}
+
+legend("topleft", legend=c("Caleb", "Rosio", "Flor", "Chris"), lty=1, col= cols, lwd=2)
+mtext("Average images per day", side=2, line=5)
+
+
+
+```
+
+
+```{r}
+
+sheet_write(lab_res, ss = "https://docs.google.com/spreadsheets/d/1DN3_UOezRG-NLX_85cizpcU9_XGX9-ieD5iE466KOLI", sheet="Sheet1")
+
+```
+

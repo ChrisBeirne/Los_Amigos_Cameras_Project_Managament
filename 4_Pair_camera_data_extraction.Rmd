@@ -67,6 +67,8 @@ tmp_ind$timestamp <- strptime(tmp_ind$timestamp, "%Y-%m-%d %H:%M:%S", tz="UTC")
 tmp_raw <- dat[dat$common_name=="Jaguar",]
 tmp_raw$timestamp <- strptime(tmp_raw$timestamp, "%Y-%m-%d %H:%M:%S", tz="UTC")
 i <- 76
+
+
 for(i in 1:nrow(tmp_ind))
 {
   # Subset all the raw data which occur in at the same station within 30 mins

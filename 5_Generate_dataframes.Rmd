@@ -1,0 +1,47 @@
+```{r, echo=F}
+ind_dat <- read.csv("data/processed-data/LosAmigos_10min_Independent.csv", header=T)
+
+
+table(ind_dat$sp)
+
+# Only do this for species you are interested in
+ind_dat <- ind_dat[!ind_dat$sp %in% c("", "No Animal"),]
+ind_dat$Species <- factor(ind_dat$Species)
+#levels(ind_dat$Species)
+```
+
+```{r, echo=F, message=F, warning=F}
+# Total counts
+  # Station / Month / Effort / Species      
+  tmp <- row.lookup
+  
+  # Calculate the number of days at each site  
+  total.obs <- tmp %>% 
+      group_by(Deployment.Location.ID) %>%
+      summarise(Effort = n())
+  # Convert to a data frame
+  total.obs <- as.data.frame(total.obs)
+  
+  # Add columns for each species  
+  total.obs[, levels(ind_dat$Species)] <- NA
+  # Duplicate for counts
+  total.count <- total.obs
+  # Test counter
+  i <-1
+  # For each station, count the number of individuals/observations
+  for(i in 1:nrow(total.obs))
+    {
+      tmp <- ind_dat[ind_dat$Deployment.Location.ID==total.obs$Deployment.Location.ID[i],]
+      
+      for(j in 1:length(levels(ind_dat$Species)))
+      {
+        total.obs[i,levels(ind_dat$Species)[j]] <- length(tmp$Species[tmp$Species==levels(ind_dat$Species)[j]])
+        total.count[i,levels(ind_dat$Species)[j]] <- sum(tmp$Event.Groupsize[tmp$Species==levels(ind_dat$Species)[j]])
+      }
+    }
+
+write.csv(total.obs, paste0("processed_data/",dat$Project.ID[1], "_",independent ,"min_Independent_total_observations.csv"), row.names = F) 
+
+write.csv(total.count, paste0("processed_data/",dat$Project.ID[1], "_",independent ,"min_Independent_total_counts.csv"), row.names = F) 
+
+```
